@@ -1,13 +1,14 @@
 name: Run Chaos Experiment
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # manually triggerable
 
 jobs:
   chaos:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Set up kubectl
@@ -15,7 +16,7 @@ jobs:
         with:
           version: 'v1.27.0'
 
-      - name: Configure Kubeconfig
+      - name: Configure kubeconfig
         run: |
           mkdir -p $HOME/.kube
           echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > $HOME/.kube/config
@@ -23,8 +24,31 @@ jobs:
       - name: Apply ChaosEngine
         run: kubectl apply -f chaos/pod-delete-chaosengine.yaml
 
-      - name: Wait for ChaosResult
-        run: kubectl wait --for=condition=complete chaosresult pod-delete-qc0-result -n default --timeout=300s
+      - name: Wait for ChaosResult to appear
+        run: |
+          echo "Waiting for ChaosResult..."
+          for i in {1..30}; do
+            CR_NAME=$(kubectl get chaosresult -n default -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+            if [ -n "$CR_NAME" ]; then
+              echo "Found ChaosResult: $CR_NAME"
+              break
+            fi
+            sleep 10
+          done
+          if [ -z "$CR_NAME" ]; then
+            echo "ChaosResult not found after 5 minutes"
+            exit 1
+          fi
 
-      - name: Get Chaos Result
-        run: kubectl get chaosresult pod-delete-qc0-result -n default
+      - name: Wait for Chaos Experiment Completion
+        run: |
+          kubectl wait --for=condition=complete chaosresult $CR_NAME -n default --timeout=600s
+
+      - name: Get ChaosResult verdict
+        run: |
+          verdict=$(kubectl get chaosresult $CR_NAME -n default -o jsonpath='{.status.experimentstatus.verdict}')
+          echo "Chaos Experiment Verdict: $verdict"
+          if [ "$verdict" != "Pass" ]; then
+            echo "Chaos experiment failed!"
+            exit 1
+          fi
