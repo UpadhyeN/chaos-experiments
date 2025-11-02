@@ -1,0 +1,30 @@
+name: Run Chaos Experiment
+
+on:
+  workflow_dispatch:  # manually triggerable
+
+jobs:
+  chaos:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.27.0'
+
+      - name: Configure Kubeconfig
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > $HOME/.kube/config
+
+      - name: Apply ChaosEngine
+        run: kubectl apply -f chaos/pod-delete-chaosengine.yaml
+
+      - name: Wait for chaos completion
+        run: |
+          kubectl wait --for=condition=complete chaosengine pod-delete-qc0 --timeout=300s
+          
+      - name: Get Chaos Result
+        run: kubectl get chaosresult -n default
