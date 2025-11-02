@@ -25,18 +25,18 @@ jobs:
           mkdir -p $HOME/.kube
           echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > $HOME/.kube/config
 
-      # Apply the Argo workflow (your file)
+      # Apply Argo Workflow (not ChaosEngine yaml directly)
       - name: Apply Chaos Workflow
         run: kubectl apply -f chaos/pod-delete-chaosengine.yaml -n $NAMESPACE
 
+      # Wait for ChaosResult to be created
       - name: Wait for ChaosResult to appear
         run: |
           echo "⏳ Waiting for ChaosResult..."
-          
-          # Get workflow UID
+
           WORKFLOW_ID=$(kubectl get wf $WORKFLOW_NAME -n $NAMESPACE -o jsonpath='{.metadata.uid}')
           echo "Workflow UID: $WORKFLOW_ID"
-          
+
           for i in {1..30}; do
             CR_NAME=$(kubectl get chaosresult -n $NAMESPACE \
               -l workflow_run_id=$WORKFLOW_ID \
@@ -53,14 +53,33 @@ jobs:
           done
 
           echo "❌ ChaosResult not found after 5 minutes"
+          kubectl get chaosengine -n $NAMESPACE
+          kubectl get chaosresult -n $NAMESPACE
           exit 1
 
+      # Wait for experiment to complete
       - name: Wait for Chaos Experiment Completion
         run: |
-          echo "⏳ Waiting for ChaosResult to complete..."
-          kubectl wait --for=condition=completed chaosresult/$CR_NAME -n $NAMESPACE --timeout=600s
-          echo "✅ Chaos experiment completed: $CR_NAME"
+          echo "⏳ Waiting for ChaosResult phase=Completed..."
 
+          for i in {1..60}; do
+            PHASE=$(kubectl get chaosresult $CR_NAME -n $NAMESPACE \
+              -o jsonpath='{.status.experimentstatus.phase}')
+
+            if [[ "$PHASE" == "Completed" ]]; then
+              echo "✅ ChaosResult Completed"
+              exit 0
+            fi
+
+            echo "⌛ Current phase: $PHASE (attempt $i/60)"
+            sleep 10
+          done
+
+          echo "❌ Chaos experiment did not reach Completed phase in time"
+          kubectl get chaosresult $CR_NAME -n $NAMESPACE -o yaml
+          exit 1
+
+      # Check verdict
       - name: Get ChaosResult verdict
         run: |
           verdict=$(kubectl get chaosresult $CR_NAME -n $NAMESPACE -o jsonpath='{.status.experimentstatus.verdict}')
