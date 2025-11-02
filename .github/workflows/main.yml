@@ -18,7 +18,8 @@ jobs:
       - name: Configure Kubeconfig
         run: |
           echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > $HOME/.kube/config
-
+        env:
+          KUBECONFIG: $GITHUB_WORKSPACE/kubeconfig
       - name: Apply ChaosEngine
         run: kubectl apply -f chaos/pod-delete-chaosengine.yaml
 
