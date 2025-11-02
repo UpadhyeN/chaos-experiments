@@ -27,7 +27,7 @@ jobs:
 
       # Apply the Argo workflow (your file)
       - name: Apply Chaos Workflow
-        run: kubectl apply -f chaos/first-experiment.yaml -n $NAMESPACE
+        run: kubectl apply -f chaos/pod-delete-chaosengine.yaml -n $NAMESPACE
 
       - name: Wait for ChaosResult to appear
         run: |
