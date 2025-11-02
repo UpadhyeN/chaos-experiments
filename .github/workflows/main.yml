@@ -1,14 +1,18 @@
 name: Run Chaos Experiment
 
 on:
-  workflow_dispatch: # manually triggerable
+  workflow_dispatch:
 
 jobs:
   chaos:
     runs-on: ubuntu-latest
 
+    env:
+      NAMESPACE: litmus
+      WORKFLOW_NAME: first-experiment
+
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v3
 
       - name: Set up kubectl
@@ -21,40 +25,50 @@ jobs:
           mkdir -p $HOME/.kube
           echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > $HOME/.kube/config
 
-      - name: Apply ChaosEngine
-        run: kubectl apply -f chaos/pod-delete-chaosengine.yaml
+      # Apply the Argo workflow (your file)
+      - name: Apply Chaos Workflow
+        run: kubectl apply -f chaos/first-experiment.yaml -n $NAMESPACE
 
       - name: Wait for ChaosResult to appear
         run: |
-          NAMESPACE="litmus"
-          WORKFLOW_NAME="first-experiment"
-          echo "Waiting for ChaosResult..."
+          echo "⏳ Waiting for ChaosResult..."
+          
+          # Get workflow UID
+          WORKFLOW_ID=$(kubectl get wf $WORKFLOW_NAME -n $NAMESPACE -o jsonpath='{.metadata.uid}')
+          echo "Workflow UID: $WORKFLOW_ID"
+          
           for i in {1..30}; do
-            CR_NAME=$(kubectl get chaosresult -n $NAMESPACE -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-            if [ -n "$CR_NAME" ]; then
-              echo "Found ChaosResult: $CR_NAME"
-              break
+            CR_NAME=$(kubectl get chaosresult -n $NAMESPACE \
+              -l workflow_run_id=$WORKFLOW_ID \
+              -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+
+            if [[ -n "$CR_NAME" ]]; then
+              echo "✅ Found ChaosResult: $CR_NAME"
+              echo "CR_NAME=$CR_NAME" >> $GITHUB_ENV
+              exit 0
             fi
+
+            echo "⌛ Waiting... ($i/30)"
             sleep 10
           done
-          if [ -z "$CR_NAME" ]; then
-            echo "ChaosResult not found after 5 minutes"
-            exit 1
-          fi
+
+          echo "❌ ChaosResult not found after 5 minutes"
+          exit 1
 
       - name: Wait for Chaos Experiment Completion
         run: |
-          NAMESPACE="litmus"
-          WORKFLOW_NAME="first-experiment"
-          kubectl wait --for=condition=complete chaosresult $CR_NAME -n $NAMESPACE --timeout=600s
+          echo "⏳ Waiting for ChaosResult to complete..."
+          kubectl wait --for=condition=completed chaosresult/$CR_NAME -n $NAMESPACE --timeout=600s
+          echo "✅ Chaos experiment completed: $CR_NAME"
 
       - name: Get ChaosResult verdict
         run: |
-          NAMESPACE="litmus"
-          WORKFLOW_NAME="first-experiment"
           verdict=$(kubectl get chaosresult $CR_NAME -n $NAMESPACE -o jsonpath='{.status.experimentstatus.verdict}')
           echo "Chaos Experiment Verdict: $verdict"
+
           if [ "$verdict" != "Pass" ]; then
-            echo "Chaos experiment failed!"
+            echo "❌ Chaos experiment FAILED"
             exit 1
           fi
+
+          echo "✅ Chaos experiment PASSED"
