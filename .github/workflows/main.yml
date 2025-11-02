@@ -1,7 +1,7 @@
 name: Run Chaos Experiment
 
 on:
-  workflow_dispatch:  # manually triggerable
+  workflow_dispatch:
 
 jobs:
   chaos:
@@ -17,15 +17,14 @@ jobs:
 
       - name: Configure Kubeconfig
         run: |
+          mkdir -p $HOME/.kube
           echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > $HOME/.kube/config
-        env:
-          KUBECONFIG: $GITHUB_WORKSPACE/kubeconfig
+
       - name: Apply ChaosEngine
         run: kubectl apply -f chaos/pod-delete-chaosengine.yaml
 
-      - name: Wait for chaos completion
-        run: |
-          kubectl wait --for=condition=complete chaosengine pod-delete-qc0 --timeout=300s
-          
+      - name: Wait for ChaosResult
+        run: kubectl wait --for=condition=complete chaosresult pod-delete-qc0-result -n default --timeout=300s
+
       - name: Get Chaos Result
-        run: kubectl get chaosresult -n default
+        run: kubectl get chaosresult pod-delete-qc0-result -n default
