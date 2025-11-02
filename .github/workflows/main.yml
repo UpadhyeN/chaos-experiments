@@ -28,7 +28,7 @@ jobs:
         run: |
           echo "Waiting for ChaosResult..."
           for i in {1..30}; do
-            CR_NAME=$(kubectl get chaosresult -n default -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+            CR_NAME=$(kubectl get chaosresult -n $NAMESPACE -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
             if [ -n "$CR_NAME" ]; then
               echo "Found ChaosResult: $CR_NAME"
               break
